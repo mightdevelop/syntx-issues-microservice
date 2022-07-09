@@ -1,11 +1,11 @@
 use std::pin::Pin;
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
-use diesel::{RunQueryDsl, QueryDsl, ExpressionMethods, insert_into, delete, update};
-use tonic::{Request, Response, Status};
+use diesel::{RunQueryDsl, QueryDsl, ExpressionMethods};
+use tonic::{Request, Response, Status, Code};
 use futures::Stream;
 use proto::{
-    boards::{
+    issues::{
         columns_service_server::ColumnsService, 
         Column as ProtoColumn, 
         ColumnId,
@@ -17,7 +17,7 @@ use proto::{
 
 use crate::{
     db::{
-        models::{NewColumn, Column},
+        repos::column::{NewColumn, Column, CreateColumn, UpdateColumn, ColumnChangeSet, DeleteColumn},
         schema::columns::dsl::*, 
         connection::PgPool,
     },
@@ -33,7 +33,7 @@ impl ColumnsService for ColumnsController {
         &self,
         request: Request<ColumnId>,
     ) -> Result<Response<ProtoColumn>, Status> {
-        let db_connection = self.pool.get().unwrap();
+        let db_connection = self.pool.get().expect("Db error");
         let result: Vec<Column> = columns
             .filter(id.eq(&request.get_ref().column_id))
             .limit(1)
@@ -45,9 +45,9 @@ impl ColumnsService for ColumnsController {
             .unwrap();
 
         Ok(Response::new(ProtoColumn {
-            id: String::from(&column.id),
-            board_id: String::from(&column.board_id),
-            name: String::from(&column.name),
+            id: column.id.clone(),
+            board_id: column.board_id.clone(),
+            name: column.name.clone(),
         }))
     }
     
@@ -57,20 +57,20 @@ impl ColumnsService for ColumnsController {
         &self,
         request: Request<BoardId>,
     ) -> Result<Response<Self::getColumnsByBoardIdStream>, Status> {
-        let db_connection = self.pool.get().unwrap();
+        let db_connection = self.pool.get().expect("Db error");
 
         let result: Vec<Column> = columns
             .filter(board_id.eq(&request.get_ref().board_id))
             .load::<Column>(&*db_connection)
             .expect("Get column by board id error");
             
-        let columns_vec: Vec<ProtoColumn> = result.iter().map(|col| ProtoColumn {
-            id: String::from(&col.id),
-            board_id: String::from(&col.board_id),
-            name: String::from(&col.name),
+        let proto_columns: Vec<ProtoColumn> = result.iter().map(|column| ProtoColumn {
+            id: column.id.clone(),
+            board_id: column.board_id.clone(),
+            name: column.name.clone(),
         }).collect();
 
-        let mut stream = tokio_stream::iter(columns_vec);
+        let mut stream = tokio_stream::iter(proto_columns);
         let (sender, receiver) = mpsc::channel(1);
 
         tokio::spawn(async move {
@@ -94,25 +94,22 @@ impl ColumnsService for ColumnsController {
         request: Request<BoardIdAndColumnName>,
     ) -> Result<Response<ProtoColumn>, Status> {
         let data = request.get_ref();
-        let db_connection = self.pool.get().unwrap();
+        let db_connection = self.pool.get().expect("Db error");
         let new_column = NewColumn {
             id: &uuid::Uuid::new_v4().to_string(),
             board_id: &data.board_id,
             name: &data.column_name
         };
-        let result: Vec<Column> = insert_into(columns)
-            .values(new_column)
-            .get_results(&*db_connection)
-            .expect("Create column error");
 
-        let column: &Column = result
-            .first()
-            .unwrap();
+        let column: Column = match Column::create(new_column, db_connection).await {
+            Ok(col) => col,
+            Err(err) => return Err(Status::new(Code::Unavailable, err.to_string())),
+        };
 
         Ok(Response::new(ProtoColumn {
-            id: String::from(&column.id),
-            board_id: String::from(&column.board_id),
-            name: String::from(&column.name),
+            id: column.id.clone(),
+            board_id: column.board_id.clone(),
+            name: column.name.clone(),
         }))
     }
 
@@ -121,21 +118,23 @@ impl ColumnsService for ColumnsController {
         request: Request<ColumnIdAndName>,
     ) -> Result<Response<ProtoColumn>, Status> {
         let data = request.get_ref();
-        let db_connection = self.pool.get().unwrap();
-        let result: Vec<Column> = update(columns)
-            .filter(id.eq(&request.get_ref().column_id))
-            .set(name.eq(&data.column_name))
-            .get_results(&*db_connection)
-            .expect("Update column error");
+        let db_connection = self.pool.get().expect("Db error");
 
-        let column: &Column = result
-            .first()
-            .unwrap();
+        let change_set = ColumnChangeSet {
+            name: Some(data.column_name.clone()),
+        };
+
+        let column: Column;
+        
+        match Column::update(&data.column_id, change_set, db_connection).await {
+            Ok(col) => column = col,
+            Err(err) => return Err(Status::new(Code::Unavailable, err.to_string())),
+        };
 
         Ok(Response::new(ProtoColumn {
-            id: String::from(&column.id),
-            board_id: String::from(&column.board_id),
-            name: String::from(&column.name),
+            id: column.id.clone(),
+            board_id: column.board_id.clone(),
+            name: column.name.clone(),
         }))
     }
 
@@ -143,20 +142,20 @@ impl ColumnsService for ColumnsController {
         &self,
         request: Request<ColumnId>,
     ) -> Result<Response<ProtoColumn>, Status> {
-        let db_connection = self.pool.get().unwrap();
-        let result: Vec<Column> = delete(columns)
-            .filter(id.eq(&request.get_ref().column_id))
-            .get_results(&*db_connection)
-            .expect("Delete column by id error");
+        let data = request.get_ref();
+        let db_connection = self.pool.get().expect("Db error");
 
-        let column: &Column = result
-            .first()
-            .unwrap();
+        let column: Column;
+        
+        match Column::delete(&data.column_id, db_connection).await {
+            Ok(col) => column = col,
+            Err(err) => return Err(Status::new(Code::Unavailable, err.to_string())),
+        };
 
         Ok(Response::new(ProtoColumn {
-            id: String::from(&column.id),
-            board_id: String::from(&column.board_id),
-            name: String::from(&column.name),
+            id: column.id.clone(),
+            board_id: column.board_id.clone(),
+            name: column.name.clone(),
         }))
     }
 }

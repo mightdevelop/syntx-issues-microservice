@@ -1,7 +1,7 @@
-use diesel::{RunQueryDsl, QueryDsl, ExpressionMethods, insert_into, delete};
-use tonic::{Request, Response, Status};
+use diesel::{RunQueryDsl, QueryDsl, ExpressionMethods};
+use tonic::{Request, Response, Status, Code};
 use proto::{
-    boards::{
+    issues::{
         Board as ProtoBoard,
         BoardId,
         ProjectId,
@@ -11,8 +11,7 @@ use proto::{
 
 use crate::{
     db::{
-        models::Board,
-        models::NewBoard,
+        repos::board::{Board, NewBoard, DeleteBoard, CreateBoard},
         schema::boards::dsl::*, 
         connection::PgPool,
     },
@@ -28,7 +27,7 @@ impl BoardsService for BoardsController {
         &self,
         request: Request<BoardId>,
     ) -> Result<Response<ProtoBoard>, Status> {
-        let db_connection = self.pool.get().unwrap();
+        let db_connection = self.pool.get().expect("Db error");
         let result: Vec<Board> = boards
             .filter(id.eq(&request.get_ref().board_id))
             .limit(1)
@@ -40,8 +39,8 @@ impl BoardsService for BoardsController {
             .unwrap();
 
         Ok(Response::new(ProtoBoard {
-            id: String::from(&board.id),
-            project_id: String::from(&board.project_id)
+            id: board.id.clone(),
+            project_id: board.project_id.clone(),
         }))
     }
 
@@ -49,7 +48,7 @@ impl BoardsService for BoardsController {
         &self,
         request: Request<ProjectId>,
     ) -> Result<Response<ProtoBoard>, Status> {
-        let db_connection = self.pool.get().unwrap();
+        let db_connection = self.pool.get().expect("Db error");
         let result: Vec<Board> = boards
             .filter(project_id.eq(&request.get_ref().project_id))
             .limit(1)
@@ -61,8 +60,8 @@ impl BoardsService for BoardsController {
             .unwrap();
 
         Ok(Response::new(ProtoBoard {
-            id: String::from(&board.id),
-            project_id: String::from(&board.project_id)
+            id: board.id.clone(),
+            project_id: board.project_id.clone(),
         }))
     }
 
@@ -70,23 +69,20 @@ impl BoardsService for BoardsController {
         &self,
         request: Request<ProjectId>,
     ) -> Result<Response<ProtoBoard>, Status> {
-        let db_connection = self.pool.get().unwrap();
+        let db_connection = self.pool.get().expect("Db error");
         let new_board = NewBoard {
             id: &uuid::Uuid::new_v4().to_string(),
             project_id: &request.get_ref().project_id,
         };
-        let result: Vec<Board> = insert_into(boards)
-            .values(new_board)
-            .get_results(&*db_connection)
-            .expect("Create board error");
 
-        let board: &Board = result
-            .first()
-            .unwrap();
+        let board: Board = match Board::create(new_board, db_connection).await {
+            Ok(brd) => brd,
+            Err(err) => return Err(Status::new(Code::Unavailable, err.to_string())),
+        };
 
         Ok(Response::new(ProtoBoard {
-            id: String::from(&board.id),
-            project_id: String::from(&board.project_id)
+            id: board.id.clone(),
+            project_id: board.project_id.clone(),
         }))
     }
 
@@ -94,19 +90,19 @@ impl BoardsService for BoardsController {
         &self,
         request: Request<BoardId>,
     ) -> Result<Response<ProtoBoard>, Status> {
-        let db_connection = self.pool.get().unwrap();
-        let result: Vec<Board> = delete(boards)
-            .filter(id.eq(&request.get_ref().board_id))
-            .get_results(&*db_connection)
-            .expect("Delete board by id error");
+        let data = request.get_ref();
+        let db_connection = self.pool.get().expect("Db error");
 
-        let board: &Board = result
-            .first()
-            .unwrap();
+        let board: Board;
+        
+        match Board::delete(&data.board_id, db_connection).await {
+            Ok(brd) => board = brd,
+            Err(err) => return Err(Status::new(Code::Unavailable, err.to_string())),
+        };
 
         Ok(Response::new(ProtoBoard {
-            id: String::from(&board.id),
-            project_id: String::from(&board.project_id)
+            id: board.id.clone(),
+            project_id: board.project_id.clone(),
         }))
     }
 }

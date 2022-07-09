@@ -1,0 +1,159 @@
+syntax = "proto3";
+
+package issues;
+
+message Board {
+    string id = 1;
+    string projectId = 2;
+}
+
+message BoardId {
+    string boardId = 1;
+}
+
+message ProjectId {
+    string projectId = 1;
+}
+
+message ProjectIdAndUserId {
+    string projectId = 1;
+    string userId = 2;
+}
+
+service BoardsService {
+    rpc getBoardById(BoardId) returns (Board) {}
+    rpc getBoardByProjectId(ProjectId) returns (Board) {}
+    rpc createBoard(ProjectId) returns (Board) {}
+    rpc deleteBoard(BoardId) returns (Board) {}
+}
+
+message Column {
+    string id = 1;
+    string boardId = 2;
+    string name = 3;
+}
+
+message ColumnId {
+    string columnId = 1;
+}
+
+message BoardIdAndColumnName {
+    string board_id = 1;
+    string columnName = 2;
+}
+
+message ColumnIdAndName {
+    string columnId = 1;
+    string columnName = 2;
+}
+
+service ColumnsService {
+    rpc getColumnById(ColumnId) returns (Column) {}
+    rpc getColumnsByBoardId(BoardId) returns (stream Column) {}
+    rpc createColumn(BoardIdAndColumnName) returns (Column) {}
+    rpc updateColumn(ColumnIdAndName) returns (Column) {}
+    rpc deleteColumn(ColumnId) returns (Column) {}
+}
+
+message Issue {
+    string id = 1;
+    string columnId = 2;
+    string epicId = 3;
+    string title = 4;
+    string description = 5;
+}
+
+message CreateIssueRequest {
+    string columnId = 1;
+    string epicId = 2;
+    string title = 3;
+    string description = 4;
+}
+
+message UpdateIssueRequest {
+    string issueId = 1;
+    optional string title = 2;
+    optional string description = 3;
+    optional string columnId = 4;
+    optional string epicId = 5;
+}
+
+message IssueId {
+    string issueId = 1;
+}
+
+service IssuesService {
+    rpc getIssueById(IssueId) returns (Issue) {}
+    rpc getIssuesByColumnId(ColumnId) returns (stream Issue) {}
+    rpc getIssuesByEpicId(EpicId) returns (stream Issue) {}
+    rpc createIssue(CreateIssueRequest) returns (Issue) {}
+    rpc updateIssue(UpdateIssueRequest) returns (Issue) {}
+    rpc deleteIssue(IssueId) returns (Issue) {}
+}
+
+message Epic {
+    string id = 1;
+    string columnId = 2;
+    optional string assigneeId = 3;
+    string reporterId = 4;
+    string name = 5;
+    optional string description = 6;
+    string startDate = 7;
+    string dueDate = 8;
+}
+
+message EpicId {
+    string epicId = 1;
+}
+
+message CreateEpicRequest {
+    optional string columnId = 1;
+    optional string assigneeId = 2;
+    string reporterId = 3;
+    string name = 4;
+    optional string description = 5;
+    optional string startDate = 6;
+    optional string dueDate = 7;
+}
+
+message UpdateEpicRequest {
+    string epicId = 1;
+    optional string columnId = 2;
+    optional string assigneeId = 3;
+    optional string reporterId = 4;
+    optional string name = 5;
+    optional string description = 6;
+    optional string startDate = 7;
+    optional string dueDate = 8;
+}
+
+service EpicsService {
+    rpc getEpicById(EpicId) returns (Epic) {}
+    rpc getEpicsByColumnId(ColumnId) returns (stream Epic) {}
+    rpc createEpic(CreateEpicRequest) returns (Epic) {}
+    rpc updateEpic(UpdateEpicRequest) returns (Epic) {}
+    rpc deleteEpic(EpicId) returns (Epic) {}
+}
+
+message Dependency {
+    string id = 1;
+    string blockingEpicId = 2;
+    string blockedEpicId = 3;
+}
+
+message DependencyId {
+    string dependencyId = 1;
+}
+
+message CreateDependencyRequest {
+    string blockingEpicId = 1;
+    string blockedEpicId = 2;
+}
+
+service DependenciesService {
+    rpc getDependencyById(DependencyId) returns (Dependency) {}
+    rpc getDependenciesByBlockingEpicId(EpicId) returns (stream Dependency) {}
+    rpc getDependenciesByBlockedEpicId(EpicId) returns (stream Dependency) {}
+    rpc createDependency(CreateDependencyRequest) returns (Dependency) {}
+    rpc deleteDependency(DependencyId) returns (Dependency) {}
+}

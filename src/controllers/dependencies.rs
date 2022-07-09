@@ -1,0 +1,176 @@
+use std::pin::Pin;
+use tokio::sync::mpsc;
+use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+use diesel::{
+    RunQueryDsl,
+    QueryDsl,
+    ExpressionMethods,
+};
+use tonic::{Request, Response, Status, Code};
+use futures::Stream;
+use proto::issues::{
+    dependencies_service_server::DependenciesService, 
+    Dependency as ProtoDependency, 
+    DependencyId,
+    EpicId,
+    CreateDependencyRequest,
+};
+
+use crate::{
+    db::{
+        repos::dependency::{NewDependency, Dependency, CreateDependency, DeleteDependency},
+        schema::dependencies::dsl::*, 
+        connection::PgPool,
+    },
+};
+
+pub struct DependenciesController {
+    pub pool: PgPool
+}
+
+#[tonic::async_trait]
+impl DependenciesService for DependenciesController {
+    async fn get_dependency_by_id(
+        &self,
+        request: Request<DependencyId>,
+    ) -> Result<Response<ProtoDependency>, Status> {
+        let db_connection = self.pool.get().expect("Db error");
+        let result: Vec<Dependency> = dependencies
+            .filter(id.eq(&request.get_ref().dependency_id))
+            .limit(1)
+            .load::<Dependency>(&*db_connection)
+            .expect("Get dependency by id error");
+
+        let dependency: &Dependency = result
+            .first()
+            .unwrap();
+
+        Ok(Response::new(ProtoDependency {
+            id: dependency.id.clone(),
+            blocking_epic_id: dependency.blocking_epic_id.clone(),
+            blocked_epic_id: dependency.blocked_epic_id.clone(),
+        }))
+    }
+
+    type getDependenciesByBlockingEpicIdStream = Pin<Box<dyn Stream<Item = Result<ProtoDependency, Status>> + Send>>;
+
+    async fn get_dependencies_by_blocking_epic_id(
+        &self,
+        request: Request<EpicId>,
+    ) -> Result<Response<Self::getDependenciesByBlockingEpicIdStream>, Status> {
+        let db_connection = self.pool.get().expect("Db error");
+
+        let result: Vec<Dependency> = dependencies
+            .filter(blocking_epic_id.eq(&request.get_ref().epic_id))
+            .load::<Dependency>(&*db_connection)
+            .expect("Get dependency by blocking epic id error");
+            
+        let proto_dependencies: Vec<ProtoDependency> = result.iter().map(|dependency| ProtoDependency {
+            id: dependency.id.clone(),
+            blocking_epic_id: dependency.blocking_epic_id.clone(),
+            blocked_epic_id: dependency.blocked_epic_id.clone(),
+        }).collect();
+
+        let mut stream = tokio_stream::iter(proto_dependencies);
+        let (sender, receiver) = mpsc::channel(1);
+
+        tokio::spawn(async move {
+            while let Some(dependency) = stream.next().await {
+                match sender.send(Result::<ProtoDependency, Status>::Ok(dependency)).await {
+                    Ok(_) => {},
+                    Err(_err) => break
+                }
+            }
+        });
+
+        let output_stream = ReceiverStream::new(receiver);
+
+        Ok(Response::new(
+            Box::pin(output_stream) as Self::getDependenciesByBlockingEpicIdStream
+        ))
+    }
+
+    type getDependenciesByBlockedEpicIdStream = Pin<Box<dyn Stream<Item = Result<ProtoDependency, Status>> + Send>>;
+
+    async fn get_dependencies_by_blocked_epic_id(
+        &self,
+        request: Request<EpicId>,
+    ) -> Result<Response<Self::getDependenciesByBlockedEpicIdStream>, Status> {
+        let db_connection = self.pool.get().expect("Db error");
+
+        let result: Vec<Dependency> = dependencies
+            .filter(blocked_epic_id.eq(&request.get_ref().epic_id))
+            .load::<Dependency>(&*db_connection)
+            .expect("Get dependency by blocked epic id error");
+            
+        let proto_dependencies: Vec<ProtoDependency> = result.iter().map(|dependency| ProtoDependency {
+            id: dependency.id.clone(),
+            blocking_epic_id: dependency.blocking_epic_id.clone(),
+            blocked_epic_id: dependency.blocked_epic_id.clone(),
+        }).collect();
+
+        let mut stream = tokio_stream::iter(proto_dependencies);
+        let (sender, receiver) = mpsc::channel(1);
+
+        tokio::spawn(async move {
+            while let Some(dependency) = stream.next().await {
+                match sender.send(Result::<ProtoDependency, Status>::Ok(dependency)).await {
+                    Ok(_) => {},
+                    Err(_err) => break
+                }
+            }
+        });
+
+        let output_stream = ReceiverStream::new(receiver);
+
+        Ok(Response::new(
+            Box::pin(output_stream) as Self::getDependenciesByBlockedEpicIdStream
+        ))
+    }
+
+    async fn create_dependency(
+        &self,
+        request: Request<CreateDependencyRequest>,
+    ) -> Result<Response<ProtoDependency>, Status> {
+        let data = request.get_ref();
+        let db_connection = self.pool.get().expect("Db error");
+
+        let new_dependency = NewDependency {
+            id: &uuid::Uuid::new_v4().to_string(),
+            blocking_epic_id: &data.blocking_epic_id,
+            blocked_epic_id: &data.blocked_epic_id,
+        };
+
+        let dependency: Dependency = match Dependency::create(new_dependency, db_connection).await {
+            Ok(dep) => dep,
+            Err(err) => return Err(Status::new(Code::Unavailable, err.to_string())),
+        };
+
+        Ok(Response::new(ProtoDependency {
+            id: dependency.id.clone(),
+            blocking_epic_id: dependency.blocking_epic_id.clone(),
+            blocked_epic_id: dependency.blocked_epic_id.clone(),
+        }))
+    }
+
+    async fn delete_dependency(
+        &self,
+        request: Request<DependencyId>,
+    ) -> Result<Response<ProtoDependency>, Status> {
+        let data = request.get_ref();
+        let db_connection = self.pool.get().expect("Db error");
+        
+        let dependency: Dependency;
+        
+        match Dependency::delete(&data.dependency_id, db_connection).await {
+            Ok(dep) => dependency = dep,
+            Err(err) => return Err(Status::new(Code::Unavailable, err.to_string())),
+        };
+
+        Ok(Response::new(ProtoDependency {
+            id: dependency.id.clone(),
+            blocking_epic_id: dependency.blocking_epic_id.clone(),
+            blocked_epic_id: dependency.blocked_epic_id.clone(),
+        }))
+    }
+}

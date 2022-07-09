@@ -1,3 +1,3 @@
-pub mod boards {
-    tonic::include_proto!("boards");
+pub mod issues {
+    tonic::include_proto!("issues");
 }
