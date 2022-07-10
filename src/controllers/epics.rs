@@ -98,8 +98,6 @@ impl EpicsService for EpicsController {
         }
         
         if let Some(start) = Option::from({
-            // let seconds = data.start_date.as_ref().unwrap().seconds;
-            // let nanos = data.start_date.as_ref().unwrap().nanos.try_into().unwrap();
             if let Some(seconds) = data.min_start_date.as_ref().map(|x| x.seconds) {
                 if let Some(nanos) = data.min_start_date.as_ref().map(|x| x.nanos) {
                     Option::from(
@@ -107,11 +105,6 @@ impl EpicsService for EpicsController {
                     )
                 } else {None}
             } else {None}
-            // if let Some(time) = (Timestamp {
-            //     seconds: data.start_date.as_ref().map(|x| x.seconds),
-            //     nanos: data.start_date.as_ref().map(|x| x.nanos),
-            // }) {};
-            // Option::from(NaiveDateTime::from_timestamp(time.seconds, time.nanos))
         }) as Option<NaiveDateTime> {
             query = query.filter(start_date.ge(start));
         }
@@ -127,14 +120,6 @@ impl EpicsService for EpicsController {
         }) as Option<NaiveDateTime> {
             query = query.filter(start_date.le(due));
         }
-        
-        // if let Some(due) = Option::from({
-        //     let seconds = data.due_date.as_ref().unwrap().seconds;
-        //     let nanos = data.due_date.as_ref().unwrap().nanos.try_into().unwrap();
-        //     Option::from(NaiveDateTime::from_timestamp(seconds, nanos))
-        // }) as Option<NaiveDateTime> {
-        //     query = query.filter(start_date.eq(due));
-        // }
 
         let result: Vec<Epic> = query
             .load::<Epic>(&*db_connection)

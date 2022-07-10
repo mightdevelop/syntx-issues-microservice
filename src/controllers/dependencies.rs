@@ -59,9 +59,27 @@ impl DependenciesService for DependenciesController {
     ) -> Result<Response<Self::searchDependenciesStream>, Status> {
         let data = request.get_ref();
         let db_connection = self.pool.get().expect("Db error");
+        
+        let mut query = dependencies.into_boxed();
 
-        let result: Vec<Dependency> = dependencies
-            .filter(blocking_epic_id.eq(data.blocking_epic_id.as_ref().unwrap()))
+        let dependencies_ids = match data.dependencies_ids.is_empty() {
+            false => Some(&data.dependencies_ids),
+            true => None,
+        };
+
+        if let Some(dep_ids) = dependencies_ids {
+            query = query.filter(id.eq_any(dep_ids));
+        }
+
+        if let Some(blocking_ep_id) = &data.blocking_epic_id {
+            query = query.filter(blocking_epic_id.eq(blocking_ep_id));
+        }
+
+        if let Some(blocked_ep_id) = &data.blocked_epic_id {
+            query = query.filter(blocked_epic_id.eq(blocked_ep_id));
+        }
+
+        let result: Vec<Dependency> = query
             .load::<Dependency>(&*db_connection)
             .expect("Get dependency by blocking epic id error");
             
