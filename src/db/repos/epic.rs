@@ -1,4 +1,4 @@
-use std::io::Error;
+use diesel::result::Error;
 
 use crate::db;
 use db::schema::epics;
@@ -68,10 +68,12 @@ impl CreateEpic for Epic {
         new_epic: NewEpic<'a>,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Epic, Error> {
-        let result: Vec<Epic> = insert_into(epics::dsl::epics)
+        let result: Vec<Epic> = match insert_into(epics::dsl::epics)
             .values(new_epic)
-            .get_results(&*db_connection)
-            .expect("Create epic error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
         let epic: &Epic = result
             .first()
@@ -106,15 +108,18 @@ impl UpdateEpic for Epic {
         change_set: EpicChangeSet,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Epic, Error> {
-        let result: Vec<Epic> = update(epics::dsl::epics)
+        let result: Vec<Epic> = match update(epics::dsl::epics)
             .filter(epics::dsl::id.eq(epic_id))
             .set(change_set)
-            .get_results(&*db_connection)
-            .expect("Update epic error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
-        let epic: &Epic = result
-            .first()
-            .unwrap();
+        let epic: &Epic = match result.first() {
+            Some(ep) => ep,
+            None => return Err(Error::NotFound),
+        };
 
         Ok(Epic {
             id: epic.id.clone(),
@@ -143,14 +148,17 @@ impl DeleteEpic for Epic {
         epic_id: &'a str,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Epic, Error> {
-        let result: Vec<Epic> = delete(epics::dsl::epics)
+        let result: Vec<Epic> = match delete(epics::dsl::epics)
             .filter(epics::dsl::id.eq(epic_id))
-            .get_results(&*db_connection)
-            .expect("Update epic error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
-        let epic: &Epic = result
-            .first()
-            .unwrap();
+        let epic: &Epic = match result.first() {
+            Some(ep) => ep,
+            None => return Err(Error::NotFound),
+        };
 
         Ok(Epic {
             id: epic.id.clone(),

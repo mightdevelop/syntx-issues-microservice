@@ -1,4 +1,4 @@
-use std::io::Error;
+use diesel::result::Error;
 
 use crate::db;
 use db::schema::columns;
@@ -50,10 +50,12 @@ impl CreateColumn for Column {
         new_column: NewColumn<'a>,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Column, Error> {
-        let result: Vec<Column> = insert_into(columns::dsl::columns)
+        let result: Vec<Column> = match insert_into(columns::dsl::columns)
             .values(new_column)
-            .get_results(&*db_connection)
-            .expect("Create column error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
         let column: &Column = result
             .first()
@@ -83,15 +85,18 @@ impl UpdateColumn for Column {
         change_set: ColumnChangeSet,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Column, Error> {
-        let result: Vec<Column> = update(columns::dsl::columns)
+        let result: Vec<Column> = match update(columns::dsl::columns)
             .filter(columns::dsl::id.eq(column_id))
             .set(change_set)
-            .get_results(&*db_connection)
-            .expect("Update column error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
-        let column: &Column = result
-            .first()
-            .unwrap();
+        let column: &Column = match result.first() {
+            Some(col) => col,
+            None => return Err(Error::NotFound),
+        };
 
         Ok(Column {
             id: column.id.clone(),
@@ -115,14 +120,17 @@ impl DeleteColumn for Column {
         column_id: &'a str,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Column, Error> {
-        let result: Vec<Column> = delete(columns::dsl::columns)
+        let result: Vec<Column> = match delete(columns::dsl::columns)
             .filter(columns::dsl::id.eq(column_id))
-            .get_results(&*db_connection)
-            .expect("Update column error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
-        let column: &Column = result
-            .first()
-            .unwrap();
+        let column: &Column = match result.first() {
+            Some(col) => col,
+            None => return Err(Error::NotFound),
+        };
 
         Ok(Column {
             id: column.id.clone(),

@@ -1,4 +1,4 @@
-use std::io::Error;
+use diesel::result::Error;
 
 use crate::db;
 use db::schema::issues;
@@ -56,10 +56,12 @@ impl CreateIssue for Issue {
         new_issue: NewIssue<'a>,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Issue, Error> {
-        let result: Vec<Issue> = insert_into(issues::dsl::issues)
+        let result: Vec<Issue> = match insert_into(issues::dsl::issues)
             .values(new_issue)
-            .get_results(&*db_connection)
-            .expect("Create issue error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
         let issue: &Issue = result
             .first()
@@ -91,15 +93,18 @@ impl UpdateIssue for Issue {
         change_set: IssueChangeSet,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Issue, Error> {
-        let result: Vec<Issue> = update(issues::dsl::issues)
+        let result: Vec<Issue> = match update(issues::dsl::issues)
             .filter(issues::dsl::id.eq(issue_id))
             .set(change_set)
-            .get_results(&*db_connection)
-            .expect("Update issue error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
-        let issue: &Issue = result
-            .first()
-            .unwrap();
+        let issue: &Issue = match result.first() {
+            Some(iss) => iss,
+            None => return Err(Error::NotFound),
+        };
 
         Ok(Issue {
             id: issue.id.clone(),
@@ -125,14 +130,17 @@ impl DeleteIssue for Issue {
         issue_id: &'a str,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Issue, Error> {
-        let result: Vec<Issue> = delete(issues::dsl::issues)
+        let result: Vec<Issue> = match delete(issues::dsl::issues)
             .filter(issues::dsl::id.eq(issue_id))
-            .get_results(&*db_connection)
-            .expect("Update issue error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
-        let issue: &Issue = result
-            .first()
-            .unwrap();
+        let issue: &Issue = match result.first() {
+            Some(iss) => iss,
+            None => return Err(Error::NotFound),
+        };
 
         Ok(Issue {
             id: issue.id.clone(),

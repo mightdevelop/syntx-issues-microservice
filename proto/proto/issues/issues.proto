@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package issues;
 
+import "google/protobuf/timestamp.proto";
+
 message Board {
     string id = 1;
     string projectId = 2;
@@ -98,8 +100,8 @@ message Epic {
     string reporterId = 4;
     string name = 5;
     optional string description = 6;
-    string startDate = 7;
-    string dueDate = 8;
+    google.protobuf.Timestamp startDate = 7;
+    google.protobuf.Timestamp dueDate = 8;
 }
 
 message EpicId {
@@ -112,8 +114,8 @@ message CreateEpicRequest {
     string reporterId = 3;
     string name = 4;
     optional string description = 5;
-    optional string startDate = 6;
-    optional string dueDate = 7;
+    optional google.protobuf.Timestamp startDate = 6;
+    optional google.protobuf.Timestamp dueDate = 7;
 }
 
 message UpdateEpicRequest {
@@ -123,13 +125,20 @@ message UpdateEpicRequest {
     optional string reporterId = 4;
     optional string name = 5;
     optional string description = 6;
-    optional string startDate = 7;
-    optional string dueDate = 8;
+    optional google.protobuf.Timestamp startDate = 7;
+    optional google.protobuf.Timestamp dueDate = 8;
+}
+
+message EpicsSearchParams {
+    optional string columnId = 1;
+    optional google.protobuf.Timestamp minStartDate = 7;
+    optional google.protobuf.Timestamp maxDueDate = 8;
+    repeated string epicsIds = 4;
 }
 
 service EpicsService {
     rpc getEpicById(EpicId) returns (Epic) {}
-    rpc getEpicsByColumnId(ColumnId) returns (stream Epic) {}
+    rpc searchEpics(EpicsSearchParams) returns (stream Epic) {}
     rpc createEpic(CreateEpicRequest) returns (Epic) {}
     rpc updateEpic(UpdateEpicRequest) returns (Epic) {}
     rpc deleteEpic(EpicId) returns (Epic) {}
@@ -150,10 +159,15 @@ message CreateDependencyRequest {
     string blockedEpicId = 2;
 }
 
+message DependenciesSearchParams {
+    optional string blockingEpicId = 1;
+    optional string blockedEpicId = 2;
+    repeated string dependenciesIds = 3;
+}
+
 service DependenciesService {
     rpc getDependencyById(DependencyId) returns (Dependency) {}
-    rpc getDependenciesByBlockingEpicId(EpicId) returns (stream Dependency) {}
-    rpc getDependenciesByBlockedEpicId(EpicId) returns (stream Dependency) {}
+    rpc searchDependencies(DependenciesSearchParams) returns (stream Dependency) {}
     rpc createDependency(CreateDependencyRequest) returns (Dependency) {}
     rpc deleteDependency(DependencyId) returns (Dependency) {}
 }

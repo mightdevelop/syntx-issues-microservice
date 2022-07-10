@@ -1,4 +1,4 @@
-use std::io::Error;
+use diesel::result::Error;
 
 use crate::db;
 use db::schema::boards;
@@ -40,10 +40,12 @@ impl CreateBoard for Board {
         new_board: NewBoard<'a>,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Board, Error> {
-        let result: Vec<Board> = insert_into(boards::dsl::boards)
+        let result: Vec<Board> = match insert_into(boards::dsl::boards)
             .values(new_board)
-            .get_results(&*db_connection)
-            .expect("Create board error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
         let board: &Board = result
             .first()
@@ -70,14 +72,17 @@ impl DeleteBoard for Board {
         board_id: &'a str,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Board, Error> {
-        let result: Vec<Board> = delete(boards::dsl::boards)
+        let result: Vec<Board> = match delete(boards::dsl::boards)
             .filter(boards::dsl::id.eq(board_id))
-            .get_results(&*db_connection)
-            .expect("Update board error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
-        let board: &Board = result
-            .first()
-            .unwrap();
+        let board: &Board = match result.first() {
+            Some(brd) => brd,
+            None => return Err(Error::NotFound),
+        };
 
         Ok(Board {
             id: board.id.clone(),

@@ -1,4 +1,4 @@
-use std::io::Error;
+use diesel::result::Error;
 
 use crate::db;
 use db::schema::dependencies;
@@ -50,10 +50,12 @@ impl CreateDependency for Dependency {
         new_dependency: NewDependency<'a>,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Dependency, Error> {
-        let result: Vec<Dependency> = insert_into(dependencies::dsl::dependencies)
+        let result: Vec<Dependency> = match insert_into(dependencies::dsl::dependencies)
             .values(new_dependency)
-            .get_results(&*db_connection)
-            .expect("Create dependency error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
         let dependency: &Dependency = result
             .first()
@@ -83,15 +85,18 @@ impl UpdateDependency for Dependency {
         change_set: DependencyChangeSet,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Dependency, Error> {
-        let result: Vec<Dependency> = update(dependencies::dsl::dependencies)
+        let result: Vec<Dependency> = match update(dependencies::dsl::dependencies)
             .filter(dependencies::dsl::id.eq(dependency_id))
             .set(change_set)
-            .get_results(&*db_connection)
-            .expect("Update dependency error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
-        let dependency: &Dependency = result
-            .first()
-            .unwrap();
+        let dependency: &Dependency = match result.first() {
+            Some(dep) => dep,
+            None => return Err(Error::NotFound),
+        };
 
         Ok(Dependency {
             id: dependency.id.clone(),
@@ -115,14 +120,17 @@ impl DeleteDependency for Dependency {
         dependency_id: &'a str,
         db_connection: PooledConnection<ConnectionManager<PgConnection>>
     ) -> Result<Dependency, Error> {
-        let result: Vec<Dependency> = delete(dependencies::dsl::dependencies)
+        let result: Vec<Dependency> = match delete(dependencies::dsl::dependencies)
             .filter(dependencies::dsl::id.eq(dependency_id))
-            .get_results(&*db_connection)
-            .expect("Update dependency error");
+            .get_results(&*db_connection) {
+                Ok(res) => res,
+                Err(err) => return Err(err),
+            };
 
-        let dependency: &Dependency = result
-            .first()
-            .unwrap();
+        let dependency: &Dependency = match result.first() {
+            Some(dep) => dep,
+            None => return Err(Error::NotFound),
+        };
 
         Ok(Dependency {
             id: dependency.id.clone(),

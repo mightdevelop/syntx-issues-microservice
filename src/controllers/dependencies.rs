@@ -12,8 +12,7 @@ use proto::issues::{
     dependencies_service_server::DependenciesService, 
     Dependency as ProtoDependency, 
     DependencyId,
-    EpicId,
-    CreateDependencyRequest,
+    CreateDependencyRequest, DependenciesSearchParams,
 };
 
 use crate::{
@@ -52,16 +51,17 @@ impl DependenciesService for DependenciesController {
         }))
     }
 
-    type getDependenciesByBlockingEpicIdStream = Pin<Box<dyn Stream<Item = Result<ProtoDependency, Status>> + Send>>;
+    type searchDependenciesStream = Pin<Box<dyn Stream<Item = Result<ProtoDependency, Status>> + Send>>;
 
-    async fn get_dependencies_by_blocking_epic_id(
+    async fn search_dependencies(
         &self,
-        request: Request<EpicId>,
-    ) -> Result<Response<Self::getDependenciesByBlockingEpicIdStream>, Status> {
+        request: Request<DependenciesSearchParams>,
+    ) -> Result<Response<Self::searchDependenciesStream>, Status> {
+        let data = request.get_ref();
         let db_connection = self.pool.get().expect("Db error");
 
         let result: Vec<Dependency> = dependencies
-            .filter(blocking_epic_id.eq(&request.get_ref().epic_id))
+            .filter(blocking_epic_id.eq(data.blocking_epic_id.as_ref().unwrap()))
             .load::<Dependency>(&*db_connection)
             .expect("Get dependency by blocking epic id error");
             
@@ -86,45 +86,7 @@ impl DependenciesService for DependenciesController {
         let output_stream = ReceiverStream::new(receiver);
 
         Ok(Response::new(
-            Box::pin(output_stream) as Self::getDependenciesByBlockingEpicIdStream
-        ))
-    }
-
-    type getDependenciesByBlockedEpicIdStream = Pin<Box<dyn Stream<Item = Result<ProtoDependency, Status>> + Send>>;
-
-    async fn get_dependencies_by_blocked_epic_id(
-        &self,
-        request: Request<EpicId>,
-    ) -> Result<Response<Self::getDependenciesByBlockedEpicIdStream>, Status> {
-        let db_connection = self.pool.get().expect("Db error");
-
-        let result: Vec<Dependency> = dependencies
-            .filter(blocked_epic_id.eq(&request.get_ref().epic_id))
-            .load::<Dependency>(&*db_connection)
-            .expect("Get dependency by blocked epic id error");
-            
-        let proto_dependencies: Vec<ProtoDependency> = result.iter().map(|dependency| ProtoDependency {
-            id: dependency.id.clone(),
-            blocking_epic_id: dependency.blocking_epic_id.clone(),
-            blocked_epic_id: dependency.blocked_epic_id.clone(),
-        }).collect();
-
-        let mut stream = tokio_stream::iter(proto_dependencies);
-        let (sender, receiver) = mpsc::channel(1);
-
-        tokio::spawn(async move {
-            while let Some(dependency) = stream.next().await {
-                match sender.send(Result::<ProtoDependency, Status>::Ok(dependency)).await {
-                    Ok(_) => {},
-                    Err(_err) => break
-                }
-            }
-        });
-
-        let output_stream = ReceiverStream::new(receiver);
-
-        Ok(Response::new(
-            Box::pin(output_stream) as Self::getDependenciesByBlockedEpicIdStream
+            Box::pin(output_stream) as Self::searchDependenciesStream
         ))
     }
 

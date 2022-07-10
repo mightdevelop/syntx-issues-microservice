@@ -1,5 +1,6 @@
-use std::{pin::Pin, str::FromStr};
-use chrono::NaiveDateTime;
+use std::{pin::Pin, time::SystemTime};
+use chrono::{NaiveDateTime, DateTime, Utc};
+use prost_types::Timestamp;
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use diesel::{
@@ -13,7 +14,7 @@ use proto::issues::{
     epics_service_server::EpicsService, 
     Epic as ProtoEpic, 
     EpicId,
-    ColumnId,
+    EpicsSearchParams,
     CreateEpicRequest, 
     UpdateEpicRequest
 };
@@ -39,9 +40,10 @@ impl EpicsService for EpicsController {
         &self,
         request: Request<EpicId>,
     ) -> Result<Response<ProtoEpic>, Status> {
+        let data = request.get_ref();
         let db_connection = self.pool.get().expect("Db error");
         let result: Vec<Epic> = epics
-            .filter(id.eq(&request.get_ref().epic_id))
+            .filter(id.eq(&data.epic_id))
             .limit(1)
             .load::<Epic>(&*db_connection)
             .expect("Get epic by id error");
@@ -50,40 +52,107 @@ impl EpicsService for EpicsController {
             .first()
             .unwrap();
 
+        let start = Option::from(Timestamp {
+            seconds: epic.start_date.timestamp(),
+            nanos: epic.start_date.timestamp_subsec_nanos().try_into().unwrap(),
+        });
+        let due = Option::from(Timestamp {
+            seconds: epic.due_date.timestamp(),
+            nanos: epic.due_date.timestamp_subsec_nanos().try_into().unwrap(),
+        });
+        
         Ok(Response::new(ProtoEpic {
             id: epic.id.clone(),
             column_id: epic.column_id.clone(),
-            assignee_id: Some(epic.assignee_id.clone().unwrap()),
+            assignee_id: epic.assignee_id.clone(),
             reporter_id: epic.reporter_id.clone(),
             name: epic.name.clone(),
-            description: Some(epic.description.clone().unwrap()),
-            start_date: epic.start_date.timestamp().to_string().clone(),
-            due_date: epic.due_date.timestamp().to_string().clone(),
+            description: epic.description.clone(),
+            start_date: start,
+            due_date: due,
         }))
     }
 
-    type getEpicsByColumnIdStream = Pin<Box<dyn Stream<Item = Result<ProtoEpic, Status>> + Send>>;
+    type searchEpicsStream = Pin<Box<dyn Stream<Item = Result<ProtoEpic, Status>> + Send>>;
 
-    async fn get_epics_by_column_id(
+    async fn search_epics(
         &self,
-        request: Request<ColumnId>,
-    ) -> Result<Response<Self::getEpicsByColumnIdStream>, Status> {
+        request: Request<EpicsSearchParams>,
+    ) -> Result<Response<Self::searchEpicsStream>, Status> {
+        let data = request.get_ref();
         let db_connection = self.pool.get().expect("Db error");
 
-        let result: Vec<Epic> = epics
-            .filter(column_id.eq(&request.get_ref().column_id))
+        let mut query = epics.into_boxed();
+
+        let epics_ids = match data.epics_ids.is_empty() {
+            false => Some(&data.epics_ids),
+            true => None,
+        };
+
+        if let Some(ep_ids) = epics_ids {
+            query = query.filter(id.eq_any(ep_ids));
+        }
+
+        if let Some(col_id) = &data.column_id {
+            query = query.filter(column_id.eq(col_id));
+        }
+        
+        if let Some(start) = Option::from({
+            // let seconds = data.start_date.as_ref().unwrap().seconds;
+            // let nanos = data.start_date.as_ref().unwrap().nanos.try_into().unwrap();
+            if let Some(seconds) = data.min_start_date.as_ref().map(|x| x.seconds) {
+                if let Some(nanos) = data.min_start_date.as_ref().map(|x| x.nanos) {
+                    Option::from(
+                        NaiveDateTime::from_timestamp(seconds, nanos.try_into().unwrap())
+                    )
+                } else {None}
+            } else {None}
+            // if let Some(time) = (Timestamp {
+            //     seconds: data.start_date.as_ref().map(|x| x.seconds),
+            //     nanos: data.start_date.as_ref().map(|x| x.nanos),
+            // }) {};
+            // Option::from(NaiveDateTime::from_timestamp(time.seconds, time.nanos))
+        }) as Option<NaiveDateTime> {
+            query = query.filter(start_date.ge(start));
+        }
+        
+        if let Some(due) = Option::from({
+            if let Some(seconds) = data.max_due_date.as_ref().map(|x| x.seconds) {
+                if let Some(nanos) = data.max_due_date.as_ref().map(|x| x.nanos) {
+                    Option::from(
+                        NaiveDateTime::from_timestamp(seconds, nanos.try_into().unwrap())
+                    )
+                } else {None}
+            } else {None}
+        }) as Option<NaiveDateTime> {
+            query = query.filter(start_date.le(due));
+        }
+        
+        // if let Some(due) = Option::from({
+        //     let seconds = data.due_date.as_ref().unwrap().seconds;
+        //     let nanos = data.due_date.as_ref().unwrap().nanos.try_into().unwrap();
+        //     Option::from(NaiveDateTime::from_timestamp(seconds, nanos))
+        // }) as Option<NaiveDateTime> {
+        //     query = query.filter(start_date.eq(due));
+        // }
+
+        let result: Vec<Epic> = query
             .load::<Epic>(&*db_connection)
-            .expect("Get epic by column id error");
+            .expect("Search epics error");
             
         let proto_epics: Vec<ProtoEpic> = result.iter().map(|epic| ProtoEpic {
             id: epic.id.clone(),
             column_id: epic.column_id.clone(),
-            assignee_id: Some(epic.assignee_id.clone().unwrap()),
+            assignee_id: epic.assignee_id.clone(),
             reporter_id: epic.reporter_id.clone(),
             name: epic.name.clone(),
-            description: Some(epic.description.clone().unwrap()),
-            start_date: epic.start_date.timestamp().to_string().clone(),
-            due_date: epic.due_date.timestamp().to_string().clone(),
+            description: epic.description.clone(),
+            start_date: Option::from(Timestamp::from(SystemTime::from(
+                DateTime::<Utc>::from_utc(epic.start_date.clone(), Utc)
+            ))),
+            due_date: Option::from(Timestamp::from(SystemTime::from(
+                DateTime::<Utc>::from_utc(epic.due_date.clone(), Utc)
+            ))),
         }).collect();
 
         let mut stream = tokio_stream::iter(proto_epics);
@@ -101,7 +170,7 @@ impl EpicsService for EpicsController {
         let output_stream = ReceiverStream::new(receiver);
 
         Ok(Response::new(
-            Box::pin(output_stream) as Self::getEpicsByColumnIdStream
+            Box::pin(output_stream) as Self::searchEpicsStream
         ))
     }
 
@@ -118,7 +187,7 @@ impl EpicsService for EpicsController {
                 let result: Vec<Column> = columns
                     .limit(1)
                     .load::<Column>(&*db_connection)
-                    .expect("Get epic by id error");
+                    .expect("Create epic error");
 
                 let column = result
                     .first()
@@ -128,15 +197,25 @@ impl EpicsService for EpicsController {
             },
         };
 
+        let start = NaiveDateTime::from_timestamp(
+            data.start_date.as_ref().unwrap().seconds,
+            0,
+        );
+
+        let due = NaiveDateTime::from_timestamp(
+            data.due_date.as_ref().unwrap().seconds,
+            0,
+        );
+
         let new_epic = NewEpic {
             id: &uuid::Uuid::new_v4().to_string(),
             column_id: &col_id,
-            assignee_id: Some(data.assignee_id.as_ref().unwrap()),
+            assignee_id: data.assignee_id.as_ref().map(|x| &**x),
             reporter_id: &data.reporter_id,
             name: &data.name,
-            description: Some(data.description.as_ref().unwrap()),
-            start_date: Some(NaiveDateTime::from_str(data.start_date.as_ref().unwrap()).unwrap()),
-            due_date: Some(NaiveDateTime::from_str(data.due_date.as_ref().unwrap()).unwrap()),
+            description: data.description.as_ref().map(|x| &**x),
+            start_date: Some(start),
+            due_date: Some(due),
         };
         
         let epic: Epic = match Epic::create(new_epic, db_connection).await {
@@ -144,16 +223,24 @@ impl EpicsService for EpicsController {
             Err(err) => return Err(Status::new(Code::Unavailable, err.to_string())),
         };
 
+        let start = Option::from(Timestamp {
+            seconds: epic.start_date.timestamp(),
+            nanos: epic.start_date.timestamp_subsec_nanos().try_into().unwrap(),
+        });
+        let due = Option::from(Timestamp {
+            seconds: epic.due_date.timestamp(),
+            nanos: epic.due_date.timestamp_subsec_nanos().try_into().unwrap(),
+        });
 
         Ok(Response::new(ProtoEpic {
             id: epic.id.clone(),
             column_id: epic.column_id.clone(),
-            assignee_id: Some(epic.assignee_id.clone().unwrap()),
+            assignee_id: epic.assignee_id.clone(),
             reporter_id: epic.reporter_id.clone(),
             name: epic.name.clone(),
-            description: Some(epic.description.clone().unwrap()),
-            start_date: epic.start_date.timestamp().to_string().clone(),
-            due_date: epic.due_date.timestamp().to_string().clone(),
+            description: epic.description.clone(),
+            start_date: start,
+            due_date: due,
         }))
     }
 
@@ -164,14 +251,24 @@ impl EpicsService for EpicsController {
         let data = request.get_ref();
         let db_connection = self.pool.get().expect("Db error");
 
+        let start = NaiveDateTime::from_timestamp(
+            data.start_date.as_ref().unwrap().seconds,
+            0,
+        );
+
+        let due = NaiveDateTime::from_timestamp(
+            data.due_date.as_ref().unwrap().seconds,
+            0,
+        );
+
         let change_set = EpicChangeSet {
             column_id: data.to_owned().column_id,
             assignee_id: data.to_owned().assignee_id,
             name: data.to_owned().name,
             reporter_id: data.to_owned().reporter_id,
             description: data.to_owned().description,
-            start_date: Some(NaiveDateTime::from_str(data.start_date.as_ref().unwrap()).unwrap()),
-            due_date: Some(NaiveDateTime::from_str(data.due_date.as_ref().unwrap()).unwrap()),
+            start_date: Option::from(start),
+            due_date: Option::from(due),
         };
         
         let epic: Epic;
@@ -181,15 +278,24 @@ impl EpicsService for EpicsController {
             Err(err) => return Err(Status::new(Code::Unavailable, err.to_string())),
         };
 
+        let start = Option::from(Timestamp {
+            seconds: epic.start_date.timestamp(),
+            nanos: epic.start_date.timestamp_subsec_nanos().try_into().unwrap(),
+        });
+        let due = Option::from(Timestamp {
+            seconds: epic.due_date.timestamp(),
+            nanos: epic.due_date.timestamp_subsec_nanos().try_into().unwrap(),
+        });
+
         Ok(Response::new(ProtoEpic {
             id: epic.id.clone(),
             column_id: epic.column_id.clone(),
-            assignee_id: Some(epic.assignee_id.clone().unwrap()),
+            assignee_id: epic.assignee_id.clone(),
             reporter_id: epic.reporter_id.clone(),
             name: epic.name.clone(),
-            description: Some(epic.description.clone().unwrap()),
-            start_date: epic.start_date.timestamp().to_string().clone(),
-            due_date: epic.due_date.timestamp().to_string().clone(),
+            description: epic.description.clone(),
+            start_date: start,
+            due_date: due,
         }))
     }
 
@@ -207,15 +313,24 @@ impl EpicsService for EpicsController {
             Err(err) => return Err(Status::new(Code::Unavailable, err.to_string())),
         };
 
+        let start = Option::from(Timestamp {
+            seconds: epic.start_date.timestamp(),
+            nanos: epic.start_date.timestamp_subsec_nanos().try_into().unwrap(),
+        });
+        let due = Option::from(Timestamp {
+            seconds: epic.due_date.timestamp(),
+            nanos: epic.due_date.timestamp_subsec_nanos().try_into().unwrap(),
+        });
+
         Ok(Response::new(ProtoEpic {
             id: epic.id.clone(),
             column_id: epic.column_id.clone(),
-            assignee_id: Some(epic.assignee_id.clone().unwrap()),
+            assignee_id: epic.assignee_id.clone(),
             reporter_id: epic.reporter_id.clone(),
             name: epic.name.clone(),
-            description: Some(epic.description.clone().unwrap()),
-            start_date: epic.start_date.timestamp().to_string().clone(),
-            due_date: epic.due_date.timestamp().to_string().clone(),
+            description: epic.description.clone(),
+            start_date: start,
+            due_date: due,
         }))
     }
 }
