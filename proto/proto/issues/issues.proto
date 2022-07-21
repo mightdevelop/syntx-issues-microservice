@@ -49,9 +49,16 @@ message ColumnIdAndName {
     string columnName = 2;
 }
 
+message SearchColumnsParams {
+    optional string boardId = 1;
+    repeated string columnsIds = 2;
+    optional int32 limit = 3;
+    optional int32 offset = 4;
+}
+
 service ColumnsService {
     rpc getColumnById(ColumnId) returns (Column) {}
-    rpc getColumnsByBoardId(BoardId) returns (stream Column) {}
+    rpc searchColumns(SearchColumnsParams) returns (stream Column) {}
     rpc createColumn(BoardIdAndColumnName) returns (Column) {}
     rpc updateColumn(ColumnIdAndName) returns (Column) {}
     rpc deleteColumn(ColumnId) returns (Column) {}

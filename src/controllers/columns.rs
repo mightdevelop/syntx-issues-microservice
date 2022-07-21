@@ -9,9 +9,9 @@ use proto::{
         columns_service_server::ColumnsService, 
         Column as ProtoColumn, 
         ColumnId,
-        BoardId,
         BoardIdAndColumnName,
         ColumnIdAndName,
+        SearchColumnsParams,
     },
 };
 
@@ -50,34 +50,49 @@ impl ColumnsService for ColumnsController {
             name: column.name.clone(),
         }))
     }
-    
-    type getColumnsByBoardIdStream = Pin<Box<dyn Stream<Item = Result<ProtoColumn, Status>> + Send>>;
 
-    async fn get_columns_by_board_id(
+    type searchColumnsStream = Pin<Box<dyn Stream<Item = Result<ProtoColumn, Status>> + Send>>;
+
+    async fn search_columns(
         &self,
-        request: Request<BoardId>,
-    ) -> Result<Response<Self::getColumnsByBoardIdStream>, Status> {
+        request: Request<SearchColumnsParams>,
+    ) -> Result<Response<Self::searchColumnsStream>, Status> {
+        let data = request.get_ref();
         let db_connection = self.pool.get().expect("Db error");
+        
+        let mut query = columns.into_boxed();
 
-        let result: Vec<Column> = columns
-            .filter(board_id.eq(&request.get_ref().board_id))
+        let columns_ids = match data.columns_ids.is_empty() {
+            false => Some(&data.columns_ids),
+            true => None,
+        };
+
+        if let Some(col_ids) = columns_ids {
+            query = query.filter(id.eq_any(col_ids));
+        }
+
+        if let Some(brd_id) = &data.board_id {
+            query = query.filter(board_id.eq(brd_id));
+        }
+
+        let result: Vec<Column> = query
             .load::<Column>(&*db_connection)
-            .expect("Get column by board id error");
+            .expect("Get dependency by blocking epic id error");
             
-        let proto_columns: Vec<ProtoColumn> = result.iter().map(|column| ProtoColumn {
-            id: column.id.clone(),
-            board_id: column.board_id.clone(),
-            name: column.name.clone(),
+        let proto_dependencies: Vec<ProtoColumn> = result.iter().map(|dependency| ProtoColumn {
+            id: dependency.id.clone(),
+            board_id: dependency.board_id.clone(),
+            name: dependency.name.clone(),
         }).collect();
 
-        let mut stream = tokio_stream::iter(proto_columns);
+        let mut stream = tokio_stream::iter(proto_dependencies);
         let (sender, receiver) = mpsc::channel(1);
 
         tokio::spawn(async move {
-            while let Some(column) = stream.next().await {
-                match sender.send(Result::<ProtoColumn, Status>::Ok(column)).await {
+            while let Some(dependency) = stream.next().await {
+                match sender.send(Result::<ProtoColumn, Status>::Ok(dependency)).await {
                     Ok(_) => {},
-                    Err(_item) => break
+                    Err(_err) => break
                 }
             }
         });
@@ -85,7 +100,7 @@ impl ColumnsService for ColumnsController {
         let output_stream = ReceiverStream::new(receiver);
 
         Ok(Response::new(
-            Box::pin(output_stream) as Self::getColumnsByBoardIdStream
+            Box::pin(output_stream) as Self::searchColumnsStream
         ))
     }
 
