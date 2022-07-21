@@ -9,10 +9,9 @@ use proto::{
         issues_service_server::IssuesService,
         Issue as ProtoIssue,
         IssueId,
-        ColumnId,
         CreateIssueRequest,
         UpdateIssueRequest,
-        EpicId,
+        SearchIssuesParams,
     },
 };
 
@@ -54,18 +53,45 @@ impl IssuesService for IssuesController {
         }))
     }
 
-    type getIssuesByColumnIdStream = Pin<Box<dyn Stream<Item = Result<ProtoIssue, Status>> + Send>>;
+    type searchIssuesStream = Pin<Box<dyn Stream<Item = Result<ProtoIssue, Status>> + Send>>;
 
-    async fn get_issues_by_column_id(
+    async fn search_issues(
         &self,
-        request: Request<ColumnId>,
-    ) -> Result<Response<Self::getIssuesByColumnIdStream>, Status> {
+        request: Request<SearchIssuesParams>,
+    ) -> Result<Response<Self::searchIssuesStream>, Status> {
+        let data = request.get_ref();
         let db_connection = self.pool.get().expect("Db error");
 
-        let result: Vec<Issue> = issues
-            .filter(column_id.eq(&request.get_ref().column_id))
+        let mut query = issues.into_boxed();
+
+        let issues_ids = match data.issues_ids.is_empty() {
+            false => Some(&data.issues_ids),
+            true => None,
+        };
+
+        if let Some(is_ids) = issues_ids {
+            query = query.filter(id.eq_any(is_ids));
+        }
+
+        if let Some(col_id) = &data.column_id {
+            query = query.filter(column_id.eq(col_id));
+        }
+
+        if let Some(col_id) = &data.epic_id {
+            query = query.filter(column_id.eq(col_id));
+        }
+
+        if let Some(limit) = data.limit.clone() {
+            query = query.limit(limit.try_into().unwrap());
+        }
+
+        if let Some(offset) = data.offset.clone() {
+            query = query.offset(offset.try_into().unwrap());
+        }
+
+        let result: Vec<Issue> = query
             .load::<Issue>(&*db_connection)
-            .expect("Get issue by column id error");
+            .expect("Search epics error");
             
         let proto_issues: Vec<ProtoIssue> = result.iter().map(|issue| ProtoIssue {
             id: issue.id.clone(),
@@ -79,10 +105,10 @@ impl IssuesService for IssuesController {
         let (sender, receiver) = mpsc::channel(1);
 
         tokio::spawn(async move {
-            while let Some(issue) = stream.next().await {
-                match sender.send(Result::<ProtoIssue, Status>::Ok(issue)).await {
+            while let Some(epic) = stream.next().await {
+                match sender.send(Result::<ProtoIssue, Status>::Ok(epic)).await {
                     Ok(_) => {},
-                    Err(_item) => break
+                    Err(_err) => break
                 }
             }
         });
@@ -90,47 +116,7 @@ impl IssuesService for IssuesController {
         let output_stream = ReceiverStream::new(receiver);
 
         Ok(Response::new(
-            Box::pin(output_stream) as Self::getIssuesByColumnIdStream
-        ))
-    }
-
-    type getIssuesByEpicIdStream = Pin<Box<dyn Stream<Item = Result<ProtoIssue, Status>> + Send>>;
-
-    async fn get_issues_by_epic_id(
-        &self,
-        request: Request<EpicId>,
-    ) -> Result<Response<Self::getIssuesByEpicIdStream>, Status> {
-        let db_connection = self.pool.get().expect("Db error");
-
-        let result: Vec<Issue> = issues
-            .filter(epic_id.eq(&request.get_ref().epic_id))
-            .load::<Issue>(&*db_connection)
-            .expect("Get issue by column id error");
-            
-        let proto_issues: Vec<ProtoIssue> = result.iter().map(|issue| ProtoIssue {
-            id: issue.id.clone(),
-            column_id: issue.column_id.clone(),
-            epic_id: issue.epic_id.clone(),
-            title: issue.title.clone(),
-            description: issue.description.clone(),
-        }).collect();
-
-        let mut stream = tokio_stream::iter(proto_issues);
-        let (sender, receiver) = mpsc::channel(1);
-
-        tokio::spawn(async move {
-            while let Some(issue) = stream.next().await {
-                match sender.send(Result::<ProtoIssue, Status>::Ok(issue)).await {
-                    Ok(_) => {},
-                    Err(_item) => break
-                }
-            }
-        });
-
-        let output_stream = ReceiverStream::new(receiver);
-
-        Ok(Response::new(
-            Box::pin(output_stream) as Self::getIssuesByColumnIdStream
+            Box::pin(output_stream) as Self::searchIssuesStream
         ))
     }
 

@@ -40,7 +40,7 @@ message ColumnId {
 }
 
 message BoardIdAndColumnName {
-    string board_id = 1;
+    string boardId = 1;
     string columnName = 2;
 }
 
@@ -84,10 +84,17 @@ message IssueId {
     string issueId = 1;
 }
 
+message SearchIssuesParams {
+    optional string columnId = 1;
+    optional string epicId = 2;
+    repeated string issuesIds = 3;
+    optional int32 limit = 4;
+    optional int32 offset = 5;
+}
+
 service IssuesService {
     rpc getIssueById(IssueId) returns (Issue) {}
-    rpc getIssuesByColumnId(ColumnId) returns (stream Issue) {}
-    rpc getIssuesByEpicId(EpicId) returns (stream Issue) {}
+    rpc searchIssues(SearchIssuesParams) returns (stream Issue) {}
     rpc createIssue(CreateIssueRequest) returns (Issue) {}
     rpc updateIssue(UpdateIssueRequest) returns (Issue) {}
     rpc deleteIssue(IssueId) returns (Issue) {}
@@ -129,16 +136,18 @@ message UpdateEpicRequest {
     optional google.protobuf.Timestamp dueDate = 8;
 }
 
-message EpicsSearchParams {
+message SearchEpicsParams {
     optional string columnId = 1;
     optional google.protobuf.Timestamp minStartDate = 7;
     optional google.protobuf.Timestamp maxDueDate = 8;
     repeated string epicsIds = 4;
+    optional int32 limit = 5;
+    optional int32 offset = 6;
 }
 
 service EpicsService {
     rpc getEpicById(EpicId) returns (Epic) {}
-    rpc searchEpics(EpicsSearchParams) returns (stream Epic) {}
+    rpc searchEpics(SearchEpicsParams) returns (stream Epic) {}
     rpc createEpic(CreateEpicRequest) returns (Epic) {}
     rpc updateEpic(UpdateEpicRequest) returns (Epic) {}
     rpc deleteEpic(EpicId) returns (Epic) {}
@@ -159,15 +168,17 @@ message CreateDependencyRequest {
     string blockedEpicId = 2;
 }
 
-message DependenciesSearchParams {
+message SearchDependenciesParams {
     optional string blockingEpicId = 1;
     optional string blockedEpicId = 2;
     repeated string dependenciesIds = 3;
+    optional int32 limit = 4;
+    optional int32 offset = 5;
 }
 
 service DependenciesService {
     rpc getDependencyById(DependencyId) returns (Dependency) {}
-    rpc searchDependencies(DependenciesSearchParams) returns (stream Dependency) {}
+    rpc searchDependencies(SearchDependenciesParams) returns (stream Dependency) {}
     rpc createDependency(CreateDependencyRequest) returns (Dependency) {}
     rpc deleteDependency(DependencyId) returns (Dependency) {}
 }

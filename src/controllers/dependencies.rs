@@ -12,7 +12,8 @@ use proto::issues::{
     dependencies_service_server::DependenciesService, 
     Dependency as ProtoDependency, 
     DependencyId,
-    CreateDependencyRequest, DependenciesSearchParams,
+    CreateDependencyRequest,
+    SearchDependenciesParams,
 };
 
 use crate::{
@@ -55,7 +56,7 @@ impl DependenciesService for DependenciesController {
 
     async fn search_dependencies(
         &self,
-        request: Request<DependenciesSearchParams>,
+        request: Request<SearchDependenciesParams>,
     ) -> Result<Response<Self::searchDependenciesStream>, Status> {
         let data = request.get_ref();
         let db_connection = self.pool.get().expect("Db error");

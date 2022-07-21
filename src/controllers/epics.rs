@@ -14,7 +14,7 @@ use proto::issues::{
     epics_service_server::EpicsService, 
     Epic as ProtoEpic, 
     EpicId,
-    EpicsSearchParams,
+    SearchEpicsParams,
     CreateEpicRequest, 
     UpdateEpicRequest
 };
@@ -77,7 +77,7 @@ impl EpicsService for EpicsController {
 
     async fn search_epics(
         &self,
-        request: Request<EpicsSearchParams>,
+        request: Request<SearchEpicsParams>,
     ) -> Result<Response<Self::searchEpicsStream>, Status> {
         let data = request.get_ref();
         let db_connection = self.pool.get().expect("Db error");
@@ -119,6 +119,14 @@ impl EpicsService for EpicsController {
             } else {None}
         }) as Option<NaiveDateTime> {
             query = query.filter(start_date.le(due));
+        }
+
+        if let Some(limit) = data.limit.clone() {
+            query = query.limit(limit.try_into().unwrap());
+        }
+
+        if let Some(offset) = data.offset.clone() {
+            query = query.offset(offset.try_into().unwrap());
         }
 
         let result: Vec<Epic> = query
