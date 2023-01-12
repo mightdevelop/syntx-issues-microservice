@@ -1,0 +1,162 @@
+syntax = "proto3";
+
+package eventbus;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+import "common.proto";
+
+message Board {
+    optional string id = 1;
+    optional string projectId = 2;
+}
+
+message BoardEvent {
+    optional Error error = 1;
+    Board board = 2;
+}
+
+service BoardsEventsService {
+    rpc getBoardByIdEvent(BoardEvent) returns (google.protobuf.Empty) {}
+    rpc getBoardByProjectIdEvent(BoardEvent) returns (google.protobuf.Empty) {}
+    rpc createBoardEvent(BoardEvent) returns (google.protobuf.Empty) {} 
+    rpc deleteBoardEvent(BoardEvent) returns (google.protobuf.Empty) {}
+}
+
+message Column {
+    optional string id = 1;
+    optional string boardId = 2;
+    optional string name = 3;
+}
+
+message ColumnEvent {
+    optional Error error = 1;
+    Column column = 2;
+}
+
+message SearchColumnsParams {
+    optional string boardId = 1;
+    repeated string columnsIds = 2;
+    optional int32 limit = 3;
+    optional int32 offset = 4;
+}
+
+message SearchColumnsEvent {
+    optional Error error = 1;
+    SearchColumnsParams searchParams = 2;
+    repeated Column columns = 3;
+}
+
+service ColumnsEventsService {
+    rpc getColumnByIdEvent(ColumnEvent) returns (google.protobuf.Empty) {}
+    rpc searchColumnsEvent(SearchColumnsEvent) returns (google.protobuf.Empty) {}
+    rpc createColumnEvent(ColumnEvent) returns (google.protobuf.Empty) {}
+    rpc updateColumnEvent(ColumnEvent) returns (google.protobuf.Empty) {}
+    rpc deleteColumnEvent(ColumnEvent) returns (google.protobuf.Empty) {}
+}
+
+message Issue {
+    optional string id = 1;
+    optional string columnId = 2;
+    optional string epicId = 3;
+    optional string title = 4;
+    optional string description = 5;
+}
+
+message IssueEvent {
+    optional Error error = 1;
+    Issue issue = 2;
+}
+
+message SearchIssuesParams {
+    optional string columnId = 1;
+    optional string epicId = 2;
+    repeated string issuesIds = 3;
+    optional int32 limit = 4;
+    optional int32 offset = 5;
+}
+
+message SearchIssuesEvent {
+    optional Error error = 1;
+    SearchIssuesParams searchParams = 2;
+    repeated Issue issues = 3;
+}
+
+service IssuesEventsService {
+    rpc getIssueByIdEvent(IssueEvent) returns (google.protobuf.Empty) {}
+    rpc searchIssuesEvent(SearchIssuesEvent) returns (google.protobuf.Empty) {}
+    rpc createIssueEvent(IssueEvent) returns (google.protobuf.Empty) {}
+    rpc updateIssueEvent(IssueEvent) returns (google.protobuf.Empty) {}
+    rpc deleteIssueEvent(IssueEvent) returns (google.protobuf.Empty) {}
+}
+
+message Epic {
+    optional string id = 1;
+    optional string columnId = 2;
+    optional string assigneeId = 3;
+    optional string reporterId = 4;
+    optional string name = 5;
+    optional string description = 6;
+    optional string startDate = 7;
+    optional string dueDate = 8;
+}
+
+message EpicEvent {
+    optional Error error = 1;
+    Epic epic = 2;
+}
+
+message SearchEpicsParams {
+    optional string columnId = 1;
+    optional google.protobuf.Timestamp minStartDate = 7;
+    optional google.protobuf.Timestamp maxDueDate = 8;
+    repeated string epicsIds = 4;
+    optional int32 limit = 5;
+    optional int32 offset = 6;
+}
+
+message SearchEpicsEvent {
+    optional Error error = 1;
+    SearchEpicsParams searchParams = 2;
+    repeated Epic epics = 3;
+}
+
+service EpicsEventsService {
+    rpc getEpicByIdEvent(EpicEvent) returns (google.protobuf.Empty) {}
+    rpc searchEpicsEvent(SearchEpicsEvent) returns (google.protobuf.Empty) {}
+    rpc createEpicEvent(EpicEvent) returns (google.protobuf.Empty) {}
+    rpc updateEpicEvent(EpicEvent) returns (google.protobuf.Empty) {}
+    rpc deleteEpicEvent(EpicEvent) returns (google.protobuf.Empty) {}
+}
+
+message Dependency {
+    optional string id = 1;
+    optional string blockingEpicId = 2;
+    optional string blockedEpicId = 3;
+}
+
+message DependencyEvent {
+    optional Error error = 1;
+    Dependency dependency = 2;
+}
+
+message SearchDependenciesParams {
+    optional string blockingEpicId = 1;
+    optional string blockedEpicId = 2;
+    repeated string dependenciesIds = 3;
+    optional int32 limit = 4;
+    optional int32 offset = 5;
+}
+
+message SearchDependenciesEvent {
+    optional Error error = 1;
+    SearchDependenciesParams searchParams = 2;
+    repeated Dependency dependencies = 3;
+}
+
+service DependenciesEventsService {
+    rpc getDependencyByIdEvent(DependencyEvent) returns (google.protobuf.Empty) {}
+    rpc searchDependenciesEvent(SearchDependenciesEvent) returns (google.protobuf.Empty) {}
+    rpc createDependencyEvent(DependencyEvent) returns (google.protobuf.Empty) {}
+    rpc deleteDependencyEvent(DependencyEvent) returns (google.protobuf.Empty) {}
+}
